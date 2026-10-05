@@ -6,6 +6,11 @@ import (
 	"net/http"
 )
 
+// ErrEmptyPassword dikembalikan oleh HashPassword ketika input kosong.
+// Disimpan sebagai sentinel agar pemanggil dapat membedakannya dari
+// error bcrypt lain tanpa membocorkan detail internal.
+var ErrEmptyPassword = errors.New("password kosong")
+
 // AppError adalah error terstruktur yang dipahami ErrorHandler. Field Err
 // hanya untuk log internal; tidak pernah dikirim ke client.
 type AppError struct {
