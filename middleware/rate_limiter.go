@@ -1,7 +1,6 @@
 package middleware
 
 import (
-	"log/slog"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -14,7 +13,6 @@ import (
 type LoginRateLimiterCfg struct {
 	Max    int           // jumlah maksimum percobaan gagal dalam jendela
 	Window time.Duration // default 1 menit
-	Logger *slog.Logger
 }
 
 // LoginRateLimiter mengembalikan fiber.Handler yang membatasi
