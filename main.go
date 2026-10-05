@@ -16,6 +16,7 @@ import (
 
 	"github.com/ryanermaulid/UTS_PBLPraktikum/config"
 	"github.com/ryanermaulid/UTS_PBLPraktikum/database"
+	"github.com/ryanermaulid/UTS_PBLPraktikum/route"
 )
 
 const usage = `Penggunaan:
@@ -82,8 +83,13 @@ func runServer() (int, error) {
 
 	app := config.NewApp(cfg, logger)
 
-	// Daftarkan route di Tahap 2/3. Untuk Tahap 1 belum ada endpoint
-	// publik; server hanya menjalankan middleware global dan ErrorHandler.
+	// Daftarkan seluruh endpoint aplikasi. Deps berisi pool, secret,
+	// dan TTL token.
+	route.Register(app, route.Deps{
+		DB:         pool,
+		JWTSecret:  cfg.JWTSecret,
+		JWTExpires: time.Duration(cfg.JWTExpiresMinutes) * time.Minute,
+	})
 
 	serverErr := make(chan error, 1)
 	go func() {
