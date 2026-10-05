@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -11,28 +12,55 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/ryanermaulid/UTS_PBLPraktikum/config"
 	"github.com/ryanermaulid/UTS_PBLPraktikum/database"
 )
 
+const usage = `Penggunaan:
+  go run .           menjalankan server
+  go run . migrate   menjalankan migration
+  go run . seed      menjalankan seeder`
+
 func main() {
-	if err := run(); err != nil {
+	code, err := dispatch(os.Args[1:])
+	if err != nil {
 		// Pesan error di sini hanya berisi alasan; tidak memuat DATABASE_URL
 		// atau secret.
-		slog.New(slog.NewTextHandler(os.Stderr, nil)).Error("startup gagal", slog.String("error", err.Error()))
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, "galat:", err.Error())
+		os.Exit(code)
+	}
+	os.Exit(code)
+}
+
+// dispatch mengembalikan exit code dan error (jika ada). Exit code
+// mengikuti konvensi: 0 sukses, 1 kesalahan runtime, 2 argumen tak
+// dikenal.
+func dispatch(args []string) (int, error) {
+	if len(args) == 0 {
+		return runServer()
+	}
+	switch args[0] {
+	case "migrate":
+		return runMigrate()
+	case "seed":
+		return runSeed()
+	default:
+		fmt.Fprintln(os.Stderr, usage)
+		return 2, fmt.Errorf("subcommand tidak dikenal: %s", args[0])
 	}
 }
 
-func run() error {
+func runServer() (int, error) {
 	cfg, err := config.Load()
 	if err != nil {
-		return err
+		return 1, err
 	}
 
 	logger, closeLog, err := config.NewLogger(cfg)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	slog.SetDefault(logger)
 	defer func() { _ = closeLog() }()
@@ -42,7 +70,7 @@ func run() error {
 
 	pool, err := database.New(startCtx, cfg.DatabaseURL)
 	if err != nil {
-		return err
+		return 1, err
 	}
 	defer pool.Close()
 
@@ -69,7 +97,7 @@ func run() error {
 
 	select {
 	case err := <-serverErr:
-		return err
+		return 1, err
 	case sig := <-stop:
 		logger.Info("shutdown diterima", slog.String("signal", sig.String()))
 	}
@@ -77,7 +105,86 @@ func run() error {
 	shutdownCtx, cancelShutdown := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancelShutdown()
 	if err := app.ShutdownWithContext(shutdownCtx); err != nil {
-		return err
+		return 1, err
 	}
-	return nil
+	return 0, nil
+}
+
+func runMigrate() (int, error) {
+	pool, cleanup, err := bootstrap()
+	if err != nil {
+		return 1, err
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	res, err := database.Migrate(ctx, pool)
+	if err != nil {
+		return 1, err
+	}
+	if len(res.Applied) == 0 && len(res.Skipped) == 0 {
+		fmt.Println("Tidak ada file migration ditemukan.")
+		return 0, nil
+	}
+	for _, n := range res.Applied {
+		fmt.Println("diterapkan:", n)
+	}
+	for _, n := range res.Skipped {
+		fmt.Println("dilewati:", n)
+	}
+	fmt.Printf("Selesai. Diterapkan=%d, dilewati=%d.\n", len(res.Applied), len(res.Skipped))
+	return 0, nil
+}
+
+func runSeed() (int, error) {
+	pool, cleanup, err := bootstrap()
+	if err != nil {
+		return 1, err
+	}
+	defer cleanup()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	summary, err := database.Seed(ctx, pool)
+	if err != nil {
+		return 1, err
+	}
+	fmt.Printf("users_created=%d users_skipped=%d students_created=%d students_skipped=%d courses_created=%d courses_skipped=%d\n",
+		summary.UsersCreated, summary.UsersSkipped,
+		summary.StudentsCreated, summary.StudentsSkipped,
+		summary.CoursesCreated, summary.CoursesSkipped,
+	)
+	return 0, nil
+}
+
+// bootstrap menyiapkan config, logger, dan pool untuk subcommand
+// non-server. Pesan kesalahan dari config.Load dan database.New sudah
+// dijaga agar tidak membocorkan nilai DATABASE_URL atau JWT_SECRET.
+func bootstrap() (*pgxpool.Pool, func(), error) {
+	cfg, lerr := config.Load()
+	if lerr != nil {
+		return nil, func() {}, lerr
+	}
+	lg, cl, lerr := config.NewLogger(cfg)
+	if lerr != nil {
+		return nil, func() {}, lerr
+	}
+	slog.SetDefault(lg)
+
+	startCtx, startCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer startCancel()
+
+	p, derr := database.New(startCtx, cfg.DatabaseURL)
+	if derr != nil {
+		_ = cl()
+		return nil, func() {}, derr
+	}
+	cleanup := func() {
+		p.Close()
+		_ = cl()
+	}
+	return p, cleanup, nil
 }
