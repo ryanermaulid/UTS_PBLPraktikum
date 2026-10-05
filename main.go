@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -58,7 +59,7 @@ func run() error {
 
 	serverErr := make(chan error, 1)
 	go func() {
-		if err := app.Listen(":" + itoa(cfg.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := app.Listen(":" + strconv.Itoa(cfg.Port)); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serverErr <- err
 		}
 	}()
@@ -79,26 +80,4 @@ func run() error {
 		return err
 	}
 	return nil
-}
-
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	neg := n < 0
-	if neg {
-		n = -n
-	}
-	var buf [20]byte
-	i := len(buf)
-	for n > 0 {
-		i--
-		buf[i] = byte('0' + n%10)
-		n /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
 }

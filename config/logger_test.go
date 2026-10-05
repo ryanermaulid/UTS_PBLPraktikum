@@ -3,7 +3,6 @@ package config
 import (
 	"bufio"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -72,19 +71,30 @@ func splitNonEmpty(s string) []string {
 	return out
 }
 
-// TestNewLogger_RejectsInvalidLogLevel memastikan level tidak valid
-// ditangani di config.Load, dan NewLogger fallback ke info.
-func TestNewLogger_FallsBackToInfoForUnknown(t *testing.T) {
-	dir := t.TempDir()
-	cfg := &Config{AppEnv: "development", LogFile: filepath.Join(dir, "a.log"), LogLevel: "info"}
-	logger, closer, err := NewLogger(cfg)
-	if err != nil {
-		t.Fatalf("NewLogger: %v", err)
+// TestParseLevel memetakan string level ke slog.Level. Dipakai sebagai
+// pengganti TestNewLogger_FallsBackToInfoForUnknown yang tidak
+// membuktikan apa pun.
+func TestParseLevel(t *testing.T) {
+	cases := []struct {
+		in   string
+		want slog.Level
+	}{
+		{"debug", slog.LevelDebug},
+		{"DEBUG", slog.LevelDebug},
+		{"info", slog.LevelInfo},
+		{"Info", slog.LevelInfo},
+		{"warn", slog.LevelWarn},
+		{"warning", slog.LevelWarn},
+		{"error", slog.LevelError},
+		{"ERROR", slog.LevelError},
+		{"trace", slog.LevelInfo},
+		{"", slog.LevelInfo},
+		{"unknown-level", slog.LevelInfo},
 	}
-	defer closer()
-	if logger == nil {
-		t.Fatalf("logger nil")
+	for _, tc := range cases {
+		got := parseLevel(tc.in)
+		if got != tc.want {
+			t.Errorf("parseLevel(%q) = %v, want %v", tc.in, got, tc.want)
+		}
 	}
-	// Suppress unused import io in this file.
-	_ = io.Discard
 }

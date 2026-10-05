@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"log/slog"
@@ -18,8 +20,10 @@ import (
 // newTestApp membuat fiber.App khusus pengujian dengan middleware yang
 // sama dengan NewApp, lalu menambahkan route sementara untuk menguji
 // ErrorHandler. Tidak menambah route ke aplikasi sebenarnya.
-func newTestApp() *fiber.App {
-	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+func newTestApp(logger *slog.Logger) *fiber.App {
+	if logger == nil {
+		logger = slog.New(slog.NewTextHandler(io.Discard, nil))
+	}
 	app := fiber.New(fiber.Config{
 		DisableStartupMessage: true,
 		ErrorHandler:          newErrorHandler(logger),
@@ -78,7 +82,7 @@ func doRequest(t *testing.T, app *fiber.App, method, path string) testResp {
 }
 
 func TestErrorHandler_UnknownRoute_ReturnsNotFoundJSON(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/api/v1/tidak-ada")
 
 	if r.Status != fiber.StatusNotFound {
@@ -97,7 +101,7 @@ func TestErrorHandler_UnknownRoute_ReturnsNotFoundJSON(t *testing.T) {
 }
 
 func TestErrorHandler_PanicReturns500GenericNoStackTrace(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/panic")
 
 	if r.Status != fiber.StatusInternalServerError {
@@ -118,7 +122,7 @@ func TestErrorHandler_PanicReturns500GenericNoStackTrace(t *testing.T) {
 }
 
 func TestErrorHandler_AppErrorPassesThrough(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/apperror")
 
 	if r.Status != fiber.StatusNotFound {
@@ -133,7 +137,7 @@ func TestErrorHandler_AppErrorPassesThrough(t *testing.T) {
 }
 
 func TestErrorHandler_GenericErrorReturns500NoLeak(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/generic")
 
 	if r.Status != fiber.StatusInternalServerError {
@@ -148,7 +152,7 @@ func TestErrorHandler_GenericErrorReturns500NoLeak(t *testing.T) {
 }
 
 func TestErrorHandler_FiberNotFoundMappedToRouteFormat(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/fiber404")
 
 	if r.Status != fiber.StatusNotFound {
@@ -160,7 +164,7 @@ func TestErrorHandler_FiberNotFoundMappedToRouteFormat(t *testing.T) {
 }
 
 func TestErrorHandler_Fiber400MappedTo422(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/fiber400")
 
 	if r.Status != fiber.StatusUnprocessableEntity {
@@ -169,7 +173,7 @@ func TestErrorHandler_Fiber400MappedTo422(t *testing.T) {
 }
 
 func TestErrorHandler_Fiber500MappedTo500(t *testing.T) {
-	app := newTestApp()
+	app := newTestApp(nil)
 	r := doRequest(t, app, "GET", "/fiber500")
 
 	if r.Status != fiber.StatusInternalServerError {
@@ -181,18 +185,65 @@ func TestErrorHandler_Fiber500MappedTo500(t *testing.T) {
 }
 
 // TestErrorHandler_UnknownRouteDoesNotLogError memastikan 404 untuk rute
-// tak dikenal tidak memicu log ERROR. Permintaan ini hanya menghasilkan
-// body berformat standar; logger hanya dipakai di paket middleware.
+// tak dikenal tidak memicu log ERROR. Logger diarahkan ke buffer JSON
+// sehingga setiap baris log dapat diinspeksi.
 func TestErrorHandler_UnknownRouteDoesNotLogError(t *testing.T) {
-	// newTestApp memakai logger discard, jadi ErrorHandler tidak menulis
-	// apa pun. Test ini hanya menegaskan bahwa kodeErrorHandler tidak
-	// memanggil jalur logika ERROR untuk status < 500.
-	app := newTestApp()
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	app := newTestApp(logger)
 	r := doRequest(t, app, "GET", "/api/v1/tidak-ada")
 	if r.Status != fiber.StatusNotFound {
 		t.Fatalf("status = %d, want 404", r.Status)
 	}
 	if r.JSON["success"] != false {
 		t.Fatalf("success = %v, want false", r.JSON["success"])
+	}
+
+	sc := bufio.NewScanner(strings.NewReader(buf.String()))
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			t.Fatalf("baris log bukan JSON: %q (%v)", line, err)
+		}
+		if lvl, _ := m["level"].(string); lvl == "ERROR" {
+			t.Fatalf("ErrorHandler menulis log ERROR untuk status 4xx: %s", line)
+		}
+	}
+}
+
+// TestErrorHandler_PanicDoesLogError memastikan 500 dari panic memang
+// memicu log ERROR; pasangan dari test di atas agar cakupan tetap jelas.
+func TestErrorHandler_PanicDoesLogError(t *testing.T) {
+	var buf bytes.Buffer
+	logger := slog.New(slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	app := newTestApp(logger)
+	r := doRequest(t, app, "GET", "/panic")
+	if r.Status != fiber.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", r.Status)
+	}
+
+	sc := bufio.NewScanner(strings.NewReader(buf.String()))
+	foundErrLevel := false
+	for sc.Scan() {
+		line := strings.TrimSpace(sc.Text())
+		if line == "" {
+			continue
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(line), &m); err != nil {
+			continue
+		}
+		if lvl, _ := m["level"].(string); lvl == "ERROR" {
+			foundErrLevel = true
+		}
+	}
+	if !foundErrLevel {
+		t.Fatalf("ErrorHandler tidak menulis log ERROR untuk 500; log:\n%s", buf.String())
 	}
 }

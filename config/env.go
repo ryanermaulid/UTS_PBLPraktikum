@@ -33,16 +33,25 @@ func Load() (*Config, error) {
 		AppEnv:            getEnv("APP_ENV", "development"),
 		Port:              3000,
 		DatabaseURL:       strings.TrimSpace(os.Getenv("DATABASE_URL")),
-		JWTSecret:         os.Getenv("JWT_SECRET"),
+		JWTSecret:         strings.TrimSpace(os.Getenv("JWT_SECRET")),
 		JWTExpiresMinutes: 60,
 		LogLevel:          getEnv("LOG_LEVEL", "info"),
 		LogFile:           getEnv("LOG_FILE", "logs/app.log"),
 	}
 
-	if p, err := strconv.Atoi(getEnv("PORT", "3000")); err == nil {
+	if raw, ok := os.LookupEnv("PORT"); ok && raw != "" {
+		p, err := strconv.Atoi(raw)
+		if err != nil || p < 1 || p > 65535 {
+			return nil, fmt.Errorf("PORT tidak valid: %s", raw)
+		}
 		cfg.Port = p
 	}
-	if m, err := strconv.Atoi(os.Getenv("JWT_EXPIRES_MINUTES")); err == nil && m > 0 {
+
+	if raw, ok := os.LookupEnv("JWT_EXPIRES_MINUTES"); ok && raw != "" {
+		m, err := strconv.Atoi(raw)
+		if err != nil || m <= 0 {
+			return nil, fmt.Errorf("JWT_EXPIRES_MINUTES tidak valid: %s", raw)
+		}
 		cfg.JWTExpiresMinutes = m
 	}
 
@@ -50,11 +59,14 @@ func Load() (*Config, error) {
 		return nil, errors.New("DATABASE_URL wajib diisi di environment atau .env")
 	}
 	if _, err := url.Parse(cfg.DatabaseURL); err != nil {
-		// Pesan sengaja tetap agar tidak membocorkan DSN yang biasanya
+		// Pesan sengaja generik agar tidak membocorkan DSN yang biasanya
 		// memuat kredensial. *url.Error bawaan menyertakan URL lengkap.
 		return nil, errors.New("DATABASE_URL tidak valid")
 	}
 
+	if cfg.JWTSecret == "" {
+		return nil, errors.New("JWT_SECRET wajib diisi")
+	}
 	if len(cfg.JWTSecret) < 32 {
 		return nil, errors.New("JWT_SECRET wajib diisi dengan panjang minimal 32 karakter")
 	}

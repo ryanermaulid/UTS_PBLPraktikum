@@ -53,7 +53,7 @@ type errorBody struct {
 //   - menghasilkan body JSON seragam dengan request_id,
 //   - menulis log ERROR hanya untuk kasus yang berakhir 500. *AppError
 //     dengan status < 500 dan *fiber.Error 4xx tidak di-log di sini
-//     karena merupakan kesalahan客户端 yang wajar.
+//     karena merupakan kesalahan klien yang wajar.
 func newErrorHandler(logger *slog.Logger) fiber.ErrorHandler {
 	return func(c *fiber.Ctx, err error) error {
 		rid, _ := c.Locals(requestid.ConfigDefault.ContextKey).(string)

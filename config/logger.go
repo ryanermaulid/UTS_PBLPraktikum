@@ -1,7 +1,6 @@
 package config
 
 import (
-	"context"
 	"io"
 	"log/slog"
 	"os"
@@ -41,7 +40,7 @@ func NewLogger(cfg *Config) (*slog.Logger, func() error, error) {
 	}
 	fileHandler := slog.NewJSONHandler(io.Writer(fileWriter), &slog.HandlerOptions{Level: level})
 
-	logger := slog.New(&multiHandler{handlers: []slog.Handler{consoleHandler, fileHandler}})
+	logger := slog.New(slog.NewMultiHandler(consoleHandler, fileHandler))
 	return logger, fileWriter.Close, nil
 }
 
@@ -56,45 +55,4 @@ func parseLevel(s string) slog.Level {
 	default:
 		return slog.LevelInfo
 	}
-}
-
-// multiHandler menggabungkan beberapa slog.Handler; setiap log diteruskan
-// ke semuanya. Implementasi minimal untuk Tahap 1.
-type multiHandler struct {
-	handlers []slog.Handler
-}
-
-func (m *multiHandler) Enabled(_ context.Context, l slog.Level) bool {
-	for _, h := range m.handlers {
-		if h.Enabled(context.Background(), l) {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *multiHandler) Handle(ctx context.Context, r slog.Record) error {
-	var firstErr error
-	for _, h := range m.handlers {
-		if err := h.Handle(ctx, r); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
-func (m *multiHandler) WithGroup(name string) slog.Handler {
-	next := make([]slog.Handler, len(m.handlers))
-	for i, h := range m.handlers {
-		next[i] = h.WithGroup(name)
-	}
-	return &multiHandler{handlers: next}
-}
-
-func (m *multiHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
-	next := make([]slog.Handler, len(m.handlers))
-	for i, h := range m.handlers {
-		next[i] = h.WithAttrs(attrs)
-	}
-	return &multiHandler{handlers: next}
 }

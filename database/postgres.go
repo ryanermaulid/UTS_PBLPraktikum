@@ -2,6 +2,7 @@ package database
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -90,7 +91,7 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(DBTX) error) (err e
 			panic(p)
 		}
 		if err != nil {
-			if rbErr := tx.Rollback(ctx); rbErr != nil && !isTxDone(rbErr) {
+			if rbErr := tx.Rollback(ctx); rbErr != nil && !errors.Is(rbErr, pgx.ErrTxClosed) {
 				err = fmt.Errorf("%w (rollback: %v)", err, rbErr)
 			}
 			return
@@ -101,15 +102,4 @@ func WithTx(ctx context.Context, pool *pgxpool.Pool, fn func(DBTX) error) (err e
 	}()
 
 	return fn(tx)
-}
-
-// isTxDone membedakan error rollback yang terjadi karena transaksi sudah
-// selesai (commit/rollback sebelumnya) sehingga tidak perlu ditambahkan ke
-// pesan error asli.
-func isTxDone(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return msg == "tx is closed" || msg == "tx already committed" || msg == "tx already rolled back"
 }
