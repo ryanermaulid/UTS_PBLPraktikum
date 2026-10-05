@@ -125,16 +125,16 @@ func runMigrate() (int, error) {
 		return 1, err
 	}
 	if len(res.Applied) == 0 && len(res.Skipped) == 0 {
-		fmt.Println("Tidak ada file migration ditemukan.")
+		fmt.Fprintln(os.Stderr, "Tidak ada file migration ditemukan.")
 		return 0, nil
 	}
 	for _, n := range res.Applied {
-		fmt.Println("diterapkan:", n)
+		fmt.Fprintln(os.Stderr, "diterapkan:", n)
 	}
 	for _, n := range res.Skipped {
-		fmt.Println("dilewati:", n)
+		fmt.Fprintln(os.Stderr, "dilewati:", n)
 	}
-	fmt.Printf("Selesai. Diterapkan=%d, dilewati=%d.\n", len(res.Applied), len(res.Skipped))
+	fmt.Fprintf(os.Stderr, "Selesai. Diterapkan=%d, dilewati=%d.\n", len(res.Applied), len(res.Skipped))
 	return 0, nil
 }
 
@@ -152,7 +152,7 @@ func runSeed() (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	fmt.Printf("users_created=%d users_skipped=%d students_created=%d students_skipped=%d courses_created=%d courses_skipped=%d\n",
+	fmt.Fprintf(os.Stderr, "users_created=%d users_skipped=%d students_created=%d students_skipped=%d courses_created=%d courses_skipped=%d\n",
 		summary.UsersCreated, summary.UsersSkipped,
 		summary.StudentsCreated, summary.StudentsSkipped,
 		summary.CoursesCreated, summary.CoursesSkipped,
