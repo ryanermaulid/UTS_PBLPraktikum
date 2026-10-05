@@ -43,8 +43,9 @@ func NewUserRepository(db database.DBTX) *UserRepository {
 //   - user adalah mahasiswa dan baris students terkait sudah di-soft
 //     delete (deleted_at IS NOT NULL).
 //
-// Dengan demikian service dapat menjawab 401 untuk kedua kasus
-// tanpa membedakan penyebab (sesuai aturan keamanan di SPEC.md).
+// Klausa tambahan `(u.role <> 'mahasiswa' OR s.user_id IS NOT NULL)`
+// memastikan mahasiswa tanpa students aktif tidak lolos WHERE,
+// sehingga Scan menerima ErrNoRows -> ErrUserNotFound.
 func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*UserRecord, error) {
 	const q = `
         SELECT u.id, u.email, u.password, u.role,
@@ -54,6 +55,7 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
                ON s.user_id = u.id
               AND s.deleted_at IS NULL
         WHERE u.email = $1
+          AND (u.role <> 'mahasiswa' OR s.user_id IS NOT NULL)
         LIMIT 1`
 	row := r.db.QueryRow(ctx, q, email)
 
@@ -88,7 +90,8 @@ func (r *UserRepository) GetUserByEmail(ctx context.Context, email string) (*Use
 
 // GetUserByIDWithStudent mengambil user berdasarkan id. Sama seperti
 // GetUserByEmail, mahasiswa yang sudah di-soft delete diperlakukan
-// sebagai user yang tidak ditemukan (ErrUserNotFound).
+// sebagai user yang tidak ditemukan (ErrUserNotFound) karena klausa
+// WHERE menyaring baris students yang sudah dihapus.
 func (r *UserRepository) GetUserByIDWithStudent(ctx context.Context, id int64) (*UserRecord, error) {
 	const q = `
         SELECT u.id, u.email, u.password, u.role,
@@ -98,6 +101,7 @@ func (r *UserRepository) GetUserByIDWithStudent(ctx context.Context, id int64) (
                ON s.user_id = u.id
               AND s.deleted_at IS NULL
         WHERE u.id = $1
+          AND (u.role <> 'mahasiswa' OR s.user_id IS NOT NULL)
         LIMIT 1`
 	row := r.db.QueryRow(ctx, q, id)
 
